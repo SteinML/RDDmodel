@@ -1,0 +1,372 @@
+#To increase JVM memory
+options(jaRva.parameters = "-Xmx8052m")
+
+# first load the necessary R packages
+##location from pc
+.libPaths(c("FILE-LOCATION",.libPaths()))
+
+#x     <-c("plyr", "foreign", "ggplot2")
+#lapply(x, require, character.only = TRUE)
+
+#install.packages("plyr")
+library (plyr)
+#install.packages("foreign")
+library(foreign)
+#install.packages("ggplot2")
+library(ggplot2)
+#install.packages('gplots')
+library(gplots)
+#install.packages('gridExtra')
+library(gridExtra)
+#install.packages("data.table")
+library(data.table)
+#install.packages("reshape")
+library(reshape)
+#install.packages("reshape2")
+require(reshape2)
+#install.packages("stringr")
+library(stringr)
+#install.packages("MASS")
+library(MASS)
+#install.packages("labeling")
+library(labeling)
+#install.packages("igraph")
+library(igraph) 
+#install.packages("VGAM")     #http://rpackages.ianhowson.com/cran/VGAM/man/betabinomUC.html
+library(VGAM)
+#install.packages("emdbook") 
+library(emdbook)
+#install.packages('tidyr')
+library(tidyr)
+#install.packages('lattice')
+require(lattice)
+#install.packages("hexbin")
+library(hexbin)
+#install.packages("doParallel")  #http://michaeljkoontz.weebly.com/uploads/1/9/9/4/19940979/parallel.pdf
+require(doParallel)
+#install.packages("foreach")
+require(foreach)
+library(gtable)
+library(grid)
+library(foreach)
+library(doParallel)
+library(igraph) 
+#install.packages("hexbin")
+library(hexbin)
+require(lattice)
+library(gplots)
+library(RColorBrewer) #to use brewer.pal
+library(fields) #to use designer.colors
+#install.packages("gamlss")
+library(gamlss)
+
+######################################################################################## 
+# SET SEED(S) #or not random drawn, but preselect specific seeds
+
+#Gender (Female or Male) in population
+p.seeds_GF   = 0.6							#proportion Female seeds
+p.seeds_GM 	 = 1- p.seeds_GF 		#proportion Male seeds
+
+#Age class (A1,A2,A3,A4) in population
+p.seeds_AA1  = 0.60			       	#proportion A1 seeds		#NOTE: at least 1 above 0.5 if you have only 1 seed.
+p.seeds_AA2  = 0.20							#proportion A2 seeds
+p.seeds_AA3  = 0.20							#proportion A3 seeds
+p.seeds_AA4  = 1-(p.seeds_AA1+p.seeds_AA2+p.seeds_AA3)	#proportion A4 seeds
+
+#Educational level (A or B) in population
+p.seeds_EA   = 0.6						#proportion A seeds
+p.seeds_EB   = 1- p.seeds_EA	#proportion B seeds
+
+n.seeds      	       <- 1
+id1 		             <- as.character(1:n.seeds)
+id1		  	           <- str_pad(string=id1, width=max(nchar(as.character(id1))), side="left", pad="0")
+dataset.seeds.input  <-  data.frame(TimeCum_Rec=as.numeric(0),id1=as.character(id1),
+		                     rec_gender=c(rep("M",round(n.seeds*p.seeds_GM)),rep("F",round(n.seeds*p.seeds_GF))),
+                         rec_age=c(rep("A1",round(n.seeds*p.seeds_AA1)),rep("A2",round(n.seeds*p.seeds_AA2)),rep("A3",round(n.seeds*p.seeds_AA3)),rep("A4",round(n.seeds*p.seeds_AA4))), 
+                         rec_edu=c(rep("A", round(n.seeds*p.seeds_EA )),rep("B", round(n.seeds*p.seeds_EB))))
+
+# set probability of accepting an invitation
+Prob_acc_individual  		= "Y"   				#Probability dependent on type of recruiter?  Y / N
+Prob_accepting 	    		= 0.3   				#set 1 probability for all types of recruiters & all 3 recruitment options [0.00 - 0.632]
+
+#set probabilities of who invites whom 				
+  #create mixing table for GENDER
+  Assort_gender_F <-  204/(204+103) #pars$Assort_genderF[n.comb]
+  Assort_gender_M <-  53/(73+53)    #pars$Assort_genderF[n.comb]
+
+  #create mixing table for AGE
+  Assort_age <- 0.5
+  MixtableAge  <- data.frame( rec_age = c(rep("A1",1),rep("A2",1),rep("A3",1),rep("A4",1)))
+  
+  MixtableAge  <- diag(Assort_age,4, 4)
+  dimnames(MixtableAge) = list(c("A1", "A2", "A3", "A4"),c("cont_ageA1","cont_ageA2","cont_ageA3","cont_ageA4")) # column names 
+  MixtableAge <- data.frame(MixtableAge)
+  
+  #create mixing table for EDU
+  Assort_edu <- 0.4
+  
+  MixtableEdu <- data.frame(rec_edu=c(rep("A",1),rep("B",1)))
+  MixtableEdu$cont_eduA[MixtableEdu$rec_edu=="A"]= Assort_edu
+  MixtableEdu$cont_eduB[MixtableEdu$rec_edu=="A"]= 1-Assort_edu
+  MixtableEdu$cont_eduB[MixtableEdu$rec_edu=="B"]= Assort_edu
+  MixtableEdu$cont_eduA[MixtableEdu$rec_edu=="B"]= 1-Assort_edu
+  MixtableEdu.string <-  paste(MixtableEdu$rec_edu)
+	
+#set Recruitment General Interval Distribution #YOU CAN SET MU AND SIGMA DIRECTLY IN MODEL FUNCTION! 
+#TimeDist  <- rGA(430, mu = exp(3.93991), sigma = exp(0.46571))  	#GAMMA distribution		#specifies a distribution for the time (in hours) between inviting by recruiter and participation by contact 
+
+############################################## 
+#SET MODEL PARAMETERS
+w.max		 = 1000000   		#set max number of waves
+max.recruits = 1000	 		#set max number pairs / recruits = equal to the number of rows
+n.times 	 =  1000		  #set max number of simulations
+save_backupdata		      = "N" 	
+
+n.coupon = 4							                        #number of coupons 				
+#n.coupon = round(runif(1,min=2,max=10),0)	  		#UNIFORM DISTRIBUTION
+
+#Load parameter combinations of BetaBinomial distribution
+FILEPATH2           <- "File_location"
+dfvalues            <- read.csv(file=paste(FILEPATH2,"ParametersBB0203.csv",sep=""),head=FALSE) 
+colnames(dfvalues)  <- c("n.coupon","mu","var","alpha","beta")  
+head(dfvalues)
+dfvalues            <- dfvalues[dfvalues$n.coupon==n.coupon,]   # & dfvalues$var==3.5,]
+dfvaluesNRS         <- dfvaluesN[sample(nrow(dfvaluesN), 1), ]
+max(dfvalues$mu)
+
+#RUN MODEL PARALLEL
+	cl <- makeCluster(detectCores() -0)
+	registerDoParallel(cl, cores = detectCores() - 0)
+	clusterCall(cl, function(x) .libPaths(x), .libPaths())
+
+	f.sim3.result 		 <- data.frame(matrix(NA,0,16)) 
+	colnames(f.sim3.result)  <- c(colnames) 
+	n.sim 			 <- NULL
+	datasetVarAccept         <- NULL
+	f.sim3.result.tmp2       <- NULL	
+		
+  #By using the appropriate .combine functions, the inner foreach loop can return vectors which are combined row-wise into a matrix by the outer foreach loop:
+	
+  comb <- function(...) {
+  	mapply('rbind', ..., SIMPLIFY=FALSE)
+	}
+  
+		datasetVarAccept <- foreach(n.comb=1:nrow(pars), .combine=rbind) %:%
+		foreach(n.sim=501:n.times,.combine='comb', .multicombine=TRUE,.packages=c("VGAM","stringr","igraph","gamlss")) %dopar% 
+		
+		{
+		dataset                      <- data.frame(matrix(NA,0,16))
+  	names(dataset)               <- colnames  
+		f.sim3.result.tmp            <- NULL	
+		f.sim3.result.tmp2           <- NULL	
+		f.sim3.result.tmp3   	       <- NULL	
+		f.sim3.result.tmp3           <- list()
+
+		df100  		                   <- NULL
+		df100                        <- data.frame(matrix(NA,1,5))
+  	colnames(df100)              <- c("Var1","Var2","Freq","SIM_COMB","SIM")
+
+		#RANDOMLY DRAW ONE SEED FROM TYPES
+		dataset.seeds.input <-  data.frame(TimeCum_Rec=as.numeric(0),id1=as.character(id1),typeSeeds[sample(nrow(typeSeeds), 1), ])
+    
+		#Two parameter values of beta binomial distribution		
+	
+		Prob_inv_individual   <- "Y"				
+		Prob_acc_individual   <- "Y"   				 #Probability dependent on type of recruiter?  Y / N
+		Prob_REC_individual   <- "Y"   				 #Probability of using a certain recruitment option depends on type of recruiter?  Y / N
+
+
+		CouponTable <- FULLlist[[1]][[1]]
+		CouponTablestring <- paste(CouponTable$wave,CouponTable$rec_gender,CouponTable$rec_age,CouponTable$rec_edu, sep="")
+
+		#Recruitment option
+		RecOptTable  <- FULLlist[[1]][[2]]
+
+		#MIXING TABLE GENDER
+	  MixtableGender        <-   FULLlist[[1]][[3]]  
+    MixtableGender.string <- paste(MixtableGender$Recwave,MixtableGender$rec_gender,sep="")
+
+		#MIXING TABLE AGE
+		MixtableAge        <-   FULLlist[[1]][[4]]
+    MixtableAge.string <- paste(MixtableAge$Recwave, MixtableAge$rec_age,sep="")
+
+		#MIXING TABLE EDU
+		MixtableEdu        <-   FULLlist[[1]][[5]]
+		MixtableEdu.string <- paste(MixtableEdu$Recwave,MixtableEdu$rec_edu,sep="")
+
+		#PROBABILITY OF ACCEPTING
+		AcceptTable       <-  FULLlist[[1]][[6]]
+	  AcceptTablestring <- paste(AcceptTable$wave,AcceptTable$rec_gender,AcceptTable$rec_age,AcceptTable$rec_edu, sep="")  #AcceptTable$recOpt
+
+		#PROBABILITY OF BELIEFS
+		BeliefVaccination        <-  FULLlist[[1]][[7]]
+		BeliefVaccination.string <- paste(BeliefVaccination$rec_gender,BeliefVaccination$rec_age,BeliefVaccination$rec_edu, sep="")
+
+		# IF ONE VALUE FOR INVITING = NO HETEROGENEITY		
+		F_alpha_inv    <- pars$alpha[n.comb]
+		F_beta_inv	    <- pars$beta[n.comb]
+		var  	   	    <- pars$var[n.comb]
+		mu  		    <- pars$mu[n.comb]
+		Prob_accepting  <- pars$accept[n.comb]
+    
+		F_alpha_inv	    <- round(rgamma(1,rate =.5,shape=1.5),2)   
+		F_beta_inv	          <- round(rgamma(1,rate =.5,shape=1.5),2)			
+
+		#Alpha and beta DEPENDENT ON INCREASING meanInv 
+		#mu  		    <- round(runif(1,min=0.5,max=n.coupon),1) 	
+		#var  	   	<- round(runif(1,min=0,max=n.coupon),1) 			
+
+		#Randomly choose a mu WITH FIXED var from a predefined list of parameters
+		#var_seq  <- data.frame(var=c(1,1.5, 2.0, 2.5,3.0,3.5))
+		#var  <- var_seq[sample(nrow(var_seq), 1), ]
+		#mu  <- round(runif(1,min=round(1/2*(n.coupon - sqrt(n.coupon^2-4*var))+0.01,2) ,max=round(1/2*(n.coupon+sqrt(n.coupon^2- 4*var))-0.01,2)),2)
+		
+			#Randomly choose a VAR WITH FIXED MU from a predefined list of parameters
+			#mu_seq  <- data.frame(var=c(0.5,1,1.5,2.0,2.5,3.0))
+			#mu 	  <- mu_seq[sample(nrow(mu_seq), 1), ]	
+			#var	  <- round(runif(1,min=0,max=round(mu+ (n.coupon-mu)*mu,2)),2)
+
+			#mu=1.753 n.coupon=4
+			#var=2.011
+			#1/2*(n.coupon - sqrt(n.coupon^2-4*var))+0.01
+			#1/2*(n.coupon+sqrt(n.coupon^2- 4*var))-0.01
+
+			#F_alpha_inv    <-   -(mu*(-n.coupon*mu + (mu^2) + var)) / ( (mu^2) + n.coupon*(-mu + var))
+			#F_beta_inv     <-  -((n.coupon - mu)*(n.coupon*mu - (mu^2) - var)) / (-mu^2 + n.coupon*(mu - var))			
+			#plot(x=0:4,y=dbetabinom.ab(0:4,size=4, shape1 =F_alpha_inv, shape2 =F_beta_inv),col="black",pch=16,type="b",ylim=c(0,1),xlim=c(0,4),ylab="probability",xlab="number of invitations",cex.lab=1.3, cex.axis=1.3)
+
+			#Randomly choose a VAR WITH FIXED mu from a predefined list of parameters
+			#mu =0.1 
+			#mu <- round(runif(1,min=0.1,max=n.coupon-0.1),1)
+			#dfvaluesN   <- dfvalues[dfvalues$n.coupon==n.coupon & dfvalues$mu==mu,]
+			#dfvaluesNRS <- dfvaluesN[sample(nrow(dfvaluesN), 1), ]
+			#F_alpha_inv	    <- dfvaluesNRS$alpha
+			#F_beta_inv	          <- dfvaluesNRS$beta
+
+			#Probability of accepting coupon
+			
+			#Prob_accepting_seq    <- data.frame(Prob_Accept=c(0.05,0.10,0.25,0.50,0.75,1))
+			#Prob_accepting        <- 0  #Prob_accepting_seq[sample(nrow(Prob_accepting_seq), 1), ]
+		
+			#RECRUITMENT OPTION USED
+		 	#Prob_REC_A 		  = 0.1					#Probability of using recruitment option A
+			#Prob_REC_B 			= 0.4					#Probability of using recruitment option B
+			#Prob_REC_C 			= 1-(Prob_REC_A+Prob_REC_B)	#Probability of using recruitment option C
+
+		f.sim3.result   	 	      <- f.sim(w.max)
+		#f.sim3.result.tmp2 	    <- cbind(SIM_COMB=n.comb,SIM=n.sim,COUPON=n.coupon,probAccept=Prob_accepting,mu=mu,var=var,F_alpha=F_alpha_inv,F_beta=F_beta_inv,f.sim3.result)		
+		
+		f.sim3.result.tmp2 	      <- cbind(SIM_COMB=n.comb,SIM=n.sim,COUPON=n.coupon,f.sim3.result)		
+		
+ 		# Proportion FEMALE per wave
+		if(!is.na(f.sim3.result.tmp2$cont_gender[1])){
+		df102             <- NULL
+		df102 		<- data.frame(as.matrix(table(f.sim3.result.tmp2$cont_gender,f.sim3.result.tmp2$cont_wave)))  #prop.table for proportions prop.table(,2)		
+		df102$SIM_COMB 	<- 	f.sim3.result.tmp2$SIM_COMB[1]
+		df102$SIM      	<- 	f.sim3.result.tmp2$SIM[1]
+		dfSEED 		<- NULL
+		dfSEED 		<- data.frame(Var1=as.character(f.sim3.result.tmp2$rec_gender[1]),Var2=0,Freq=1,SIM_COMB=f.sim3.result.tmp2$SIM_COMB[1],SIM=f.sim3.result.tmp2$SIM[1])
+		df101 		<- rbind(dfSEED,df102)
+		}else{
+		df101              <- data.frame(matrix(NA,1,5))
+  		colnames(df101)    <- c("Var1","Var2","Freq","SIM_COMB","SIM")
+		df101$Var1[1] 	 <- as.character(f.sim3.result.tmp2$rec_gender[1])
+		df101$Var2[1]      <- 0
+		df101$Freq[1]      <- 1
+		df101$SIM_COMB 	<- 	f.sim3.result.tmp2$SIM_COMB[1]
+		df101$SIM      	<- 	f.sim3.result.tmp2$SIM[1]    
+		}
+		
+		#AGE over waves
+		if(!is.na(f.sim3.result.tmp2$cont_age[1])){
+		df_age            <- NULL
+		df_age 		<- data.frame(as.matrix(table(f.sim3.result.tmp2$cont_age,f.sim3.result.tmp2$cont_wave)))  #prop.table for proportions prop.table(,2)		
+		df_age$SIM_COMB 	<- f.sim3.result.tmp2$SIM_COMB[1]
+		df_age$SIM      	<- f.sim3.result.tmp2$SIM[1]
+		dfSEED 		<- NULL
+		dfSEED 		<- data.frame(Var1=as.character(f.sim3.result.tmp2$rec_age[1]),Var2=0,Freq=1,SIM_COMB=f.sim3.result.tmp2$SIM_COMB[1],SIM=f.sim3.result.tmp2$SIM[1])
+		df_age.f 		<- rbind(dfSEED,df_age)
+		}else{
+		df_age.f              <- data.frame(matrix(NA,1,5))
+  		colnames(df_age.f)    <- c("Var1","Var2","Freq","SIM_COMB","SIM")
+		df_age.f$Var1[1] 	    <- as.character(f.sim3.result.tmp2$rec_age[1])
+		df_age.f$Var2[1]      <- 0
+		df_age.f$Freq[1]      <- 1
+		df_age.f$SIM_COMB     <- f.sim3.result.tmp2$SIM_COMB[1]
+		df_age.f$SIM          <- f.sim3.result.tmp2$SIM[1]    
+		}
+		
+		#EDU over waves
+		if(!is.na(f.sim3.result.tmp2$cont_edu[1])){
+		df_edu            <- NULL
+		df_edu 		<- data.frame(as.matrix(table(f.sim3.result.tmp2$cont_edu,f.sim3.result.tmp2$cont_wave)))  #prop.table for proportions prop.table(,2)		
+		df_edu$SIM_COMB 	<- f.sim3.result.tmp2$SIM_COMB[1]
+		df_edu$SIM      	<- f.sim3.result.tmp2$SIM[1]
+		dfSEED 		<- NULL
+		dfSEED 		<- data.frame(Var1=as.character(f.sim3.result.tmp2$rec_edu[1]),Var2=0,Freq=1,SIM_COMB=f.sim3.result.tmp2$SIM_COMB[1],SIM=f.sim3.result.tmp2$SIM[1])
+		df_edu.f 		<- rbind(dfSEED,df_edu)
+		}else{
+		df_edu.f              <- data.frame(matrix(NA,1,5))
+  		colnames(df_edu.f)    <- c("Var1","Var2","Freq","SIM_COMB","SIM")
+		df_edu.f$Var1[1] 	    <- as.character(f.sim3.result.tmp2$rec_edu[1])
+		df_edu.f$Var2[1]      <- 0
+		df_edu.f$Freq[1]      <- 1
+		df_edu.f$SIM_COMB     <- f.sim3.result.tmp2$SIM_COMB[1]
+		df_edu.f$SIM          <- f.sim3.result.tmp2$SIM[1]    
+		}
+
+		#BELIEF OVER WAVES
+		#INCLUDE ALSO SEED BELIEF (DIT IS DE ENIGE DIE GEEN WAARDE HEEFT GEKREGEN!) 
+		if(!is.na(f.sim3.result.tmp2$cont_belief[1])){
+		df_belief           <- NULL
+		df_belief 		<- data.frame(as.matrix(table(f.sim3.result.tmp2$cont_belief,f.sim3.result.tmp2$cont_wave)))		
+		df_belief$SIM_COMB 	<- f.sim3.result.tmp2$SIM_COMB[1]
+		df_belief$SIM      	<- f.sim3.result.tmp2$SIM[1]
+		dfSEED 		<- NULL
+
+	      sim.stringSEED 	<-  paste(f.sim3.result.tmp2$rec_gender[1],f.sim3.result.tmp2$rec_age[1],f.sim3.result.tmp2$rec_edu[1], sep="")
+		
+             p.beliefSEED       <-  c(as.numeric(BeliefVaccination[which(sim.stringSEED[1]==BeliefVaccination.string),c("posBelief","negBelief")]))
+             rng_beliefSEED     <- rmultinom(n=1, size=1, prob=p.beliefSEED )    
+		SEED_belief.tmp     <- c(apply(rng_beliefSEED,2,f.which)) 
+		SEED_belief.tmp[SEED_belief.tmp==1] <- "P"
+		SEED_belief.tmp[SEED_belief.tmp==2] <- "N"       
+		dfSEED 		<- data.frame(Var1=as.character(SEED_belief.tmp),Var2=0,Freq=1,SIM_COMB=f.sim3.result.tmp2$SIM_COMB[1],SIM=f.sim3.result.tmp2$SIM[1])
+		df_belief.f 		<- rbind(dfSEED,df_belief)
+
+		}else{
+		df_belief.f           <- data.frame(matrix(NA,1,5))
+  		colnames(df_belief.f)    <- c("Var1","Var2","Freq","SIM_COMB","SIM")
+
+		sim.stringSEED 	<-  paste(f.sim3.result.tmp2$rec_gender[1],f.sim3.result.tmp2$rec_age[1],f.sim3.result.tmp2$rec_edu[1], sep="")
+		p.beliefSEED       <-  c(as.numeric(BeliefVaccination[which(sim.stringSEED[1]==BeliefVaccination.string),c("posBelief","negBelief")]))
+              rng_beliefSEED     <- rmultinom(n=1, size=1, prob=p.beliefSEED )    
+		SEED_belief.tmp     <- c(apply(rng_beliefSEED,2,f.which)) 
+		SEED_belief.tmp[SEED_belief.tmp==1] <- "P"
+		SEED_belief.tmp[SEED_belief.tmp==2] <- "N"  
+
+		df_belief.f$Var1[1]      <- as.character(SEED_belief.tmp)
+		df_belief.f$Var2[1]      <- 0
+		df_belief.f$Freq[1]      <- 1
+		df_belief.f$SIM_COMB     <- f.sim3.result.tmp2$SIM_COMB[1]
+		df_belief.f$SIM          <- f.sim3.result.tmp2$SIM[1]    
+		}
+
+		#only save the relevant parts w.r.t. number of recruits and max. wave 
+		f.sim3.result.tmp3 <- list(findessential(f.sim3.result.tmp2),df101,df_age.f,df_edu.f,df_belief.f)  
+		return(f.sim3.result.tmp3)	
+		}
+
+		stopCluster(cl)
+
+
+datasetVarAccept[2] #DATASET
+head(datasetVarAccept[,2]) #WAVES INFO
+
+#SAVE DATA For example: GENDER
+waves_gender2  <- mapply(cbind, datasetVarAccept[,2], "countALL"=1, SIMPLIFY=F)
+names(waves_gender2) <- paste0('',seq_along(waves_gender2))
+waves_gender <- ldply(waves_gender2, data.frame)
+
+FILEPATH2 <- "filepath/filename.csv"
+write.table(waves_gender,file = FILEPATH2, quote=FALSE,sep=",",col.names = TRUE,row.names=FALSE,append = FALSE)
