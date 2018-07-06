@@ -79,7 +79,7 @@ p.seeds_EB   = 1- p.seeds_EA	#proportion B seeds
 
 n.seeds      	       <- 1
 id1 		             <- as.character(1:n.seeds)
-id1		  	           <- str_pad(string=id1, width=max(nchar(as.character(id1))), side="left", pad="0")
+id1		  	        <- str_pad(string=id1, width=max(nchar(as.character(id1))), side="left", pad="0")
 dataset.seeds.input  <-  data.frame(TimeCum_Rec=as.numeric(0),id1=as.character(id1),
 		                     rec_gender=c(rep("M",round(n.seeds*p.seeds_GM)),rep("F",round(n.seeds*p.seeds_GF))),
                          rec_age=c(rep("A1",round(n.seeds*p.seeds_AA1)),rep("A2",round(n.seeds*p.seeds_AA2)),rep("A3",round(n.seeds*p.seeds_AA3)),rep("A4",round(n.seeds*p.seeds_AA4))), 
