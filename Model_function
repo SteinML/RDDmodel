@@ -1,0 +1,1403 @@
+#This file contains the RDD model, simulations and plotting functions
+
+######################## LOAD ALL ONCE #######################
+#Step 1: CTRL A (select all)
+#Step 2: CTRL R (load all functions in this file)
+
+########################
+f.which  <- function(x) {which(x==1)} 
+colnames <- c("treeID","TimeCum_Rec","id1","rec_gender","rec_age","rec_edu","RecOpt", "rec_wave","id2","cont_wave","cont_gender","cont_age","cont_edu","RecInterval","TimeCum_Cont","cont_belief")
+########################
+
+########################
+#SELECT ALL -> CTRL R; 
+########################
+f.sim  <- function(w.max) 
+{   
+	 treeID.tmp    <- transform(treeID=match(id1, unique(id1)),dataset.seeds.input)
+	 dataset.seeds <- cbind(treeID=treeID.tmp$treeID,dataset.seeds.input)
+	#OVERALL 
+	#seeds.string  <- paste(dataset.seeds$rec_gender, dataset.seeds$rec_age,dataset.seeds$rec_edu, sep="")  
+	#Heterogeniety over waves
+	seeds.string  <- paste("0",dataset.seeds$rec_gender, dataset.seeds$rec_age,dataset.seeds$rec_edu, sep="")  
+  
+  for (w in 1:w.max) {  
+    timeval <- date()
+    print(paste("wave",w,":",timeval))
+      
+      if (w==1)
+      {
+      #dataset with info on recruiters
+      dataset.2  <- dataset.seeds   
+      sim.string <- seeds.string
+    
+        }else{
+             #determine dataset with recruiters in the previous wave
+             dataset.2  <- NULL
+             dataset.2  <- dataset[(dataset$cont_wave==w-1 & dataset$cont_gender!="MISSING"),c("treeID","TimeCum_Cont","id2","cont_gender","cont_age","cont_edu")]    
+             names(dataset.2) <- c("treeID","TimeCum_Rec","id1","rec_gender","rec_age","rec_edu")
+             
+             #Create a string of recruiters
+		wave_tmp.2   = NULL	
+		wave_tmp.2 	 <- w
+		if(wave_tmp.2>0){wave_tmp.2=1}
+
+		#OVERALL
+		#sim.string <- paste(dataset.2$rec_gender,dataset.2$rec_age,dataset.2$rec_edu, sep="")   
+		#Heterogeniety over waves
+	      sim.string <- paste(wave_tmp.2,dataset.2$rec_gender,dataset.2$rec_age,dataset.2$rec_edu, sep="")   
+	
+             }   
+    
+            #Create a new data set that includes all info, including non-responders
+            #dataset.backup <- NULL
+            #dataset.backup <- data.frame(matrix(NA,0,15))
+            #names(dataset.backup) <- colnames
+            #dataset.backup2 <- NULL
+            #dataset.backup2 <- data.frame(matrix(NA,0,15))
+            #names(dataset.backup2) <- colnames  
+    
+                #Check if recruitment died out OR if the max number of recruits was reached
+                if(nrow(dataset.2)==0  | nrow(dataset) > max.recruits )
+                {
+                print("recruitment stopped")  #exit 1
+                break
+                }else{
+    
+                n.invited <-  NULL
+  
+                     #Determine for each recruiter the number of invitations 
+                     for (id1.pos1 in 1:length(sim.string))  
+                     { 
+                     		
+                       #If Y, then each type of recruiter has its own probability distribution:
+                       if(Prob_inv_individual=="Y")
+			  		
+                     		  {
+                     		  	p.invited      <- c(as.numeric(CouponTable[which(sim.string[id1.pos1]==CouponTablestring),c(colnames(CouponTable[,(5:(5+n.coupon))])) ]))  #LET OP NORMAAL = 4 BIJ WAVES=5
+                     		  	rng            <- rmultinom(n=1, size=1, prob=p.invited) 
+			   		
+                     		  	}else{
+                     		  	rng        <- rmultinom(n=1, size=1, prob=c(dbetabinom.ab(0:n.coupon,size=n.coupon, shape1 = F_alpha_inv, shape2 = F_beta_inv)))                     	
+			      	
+                     		  	} 
+                       
+                       #Create a string of the number of invited per recruiter
+                       n.invited.tmp   <- c(apply(rng,2,f.which)-1)
+                       n.invited       <- c(n.invited,n.invited.tmp)
+                       } 
+
+                        #If interested in non-responders
+                        #if(length(n.invited[n.invited==0])>0)
+                        #{
+                        #dataset.backup.tmp <- dataset.2[n.invited==0,]
+                        #dataset.backup     <- cbind(dataset.backup.tmp,RecOpt="MISSINGINV",rec_wave=NA,id2="MISSINGINV",cont_wave=NA,cont_gender="MISSING",cont_age="MISSINGINV",cont_edu="MISSINGINV",RecInterval=0,TimeCum_Cont=0)
+                        #}else{
+                        #dataset.backup <- data.frame(matrix(NA,0,15))
+                        #names(dataset.backup) <- colnames
+                        #}  
+      
+                    #Select those recruiters who recruited at least one contact
+                    dataset.2    <- dataset.2[n.invited>0,]
+                    #Only select more than 0 invitations
+                    n.invited    <- n.invited[n.invited>0]
+      
+      #print("n.invited")
+      #print(n.invited)
+      #print("dataset.backup")
+      #print(dataset.backup)
+        
+                          #END simulation when no-one invited
+                          if(length(n.invited)==0)
+                          {
+                          print("no invitations were sent")      #exit 2
+                          }else{
+  
+                              #which recruitment option is used, this depends on the characteristics of the recruiter
+                              sim.string1 <-   paste(dataset.2$rec_gender,dataset.2$rec_age,dataset.2$rec_edu, sep="")
+                              
+                              RecOpt <- NULL
+                              for (id1.pos2 in 1:nrow(dataset.2))  
+                              { 
+                                
+                                #each recruiter uses it's own option
+                                if(Prob_REC_individual == "Y")     
+					                    	{ 
+					      p.recopt   <- c(as.numeric(RecOptTable[which(sim.string1[id1.pos2]==RecOptTablestring),c("RecOptA","RecOptB","RecOptC")]))
+                              	rng_recopt <- rmultinom(n=1, size=1, prob=p.recopt)     
+                              	
+                              	#OR all recruiters during one simulation use with the same prob. a recruitment option  
+                              	}else{  
+						                    rng_recopt <- rmultinom(n=1, size=1, prob=c(Prob_REC_A,Prob_REC_B,Prob_REC_C))
+					                    	}
+				                         recopt.tmp <- c(apply(rng_recopt,2,f.which))
+                                 RecOpt     <- c(RecOpt,recopt.tmp)
+                              } 
+   
+                              #recode the rec. options
+                              RecOpt[RecOpt==1] <- "A"
+                              RecOpt[RecOpt==2] <- "B"
+                              RecOpt[RecOpt==3] <- "C"
+                              dataset.2$RecOpt <- RecOpt
+    
+                              dataset.2.exp <- NULL
+                                
+                              #replicates dataset for the number of contacts invited
+                              dataset.2.exp <- dataset.2[rep(row.names(dataset.2), n.invited),] 
+  
+                              
+                                  #Give each contact an ID
+                                  id2  	<- NULL
+                                  for (id1.pos3 in 1:length(dataset.2$id1))
+                                  {
+					                         id2.tmp <- (1:n.invited[id1.pos3])
+					                        id2.tmp <- str_pad(id2.tmp, width=max(nchar(n.invited)), side="left", pad="0")
+                                  id2     <- c(id2,id2.tmp)
+                                  }
+                                  id2 		<- paste(dataset.2.exp$id1,id2,sep="")
+  
+                              #combine datasets    
+                              dataset.tmp <- data.frame(cbind(dataset.2.exp,w-1,id2,w))        
+                              names(dataset.tmp) <- c("treeID","TimeCum_Rec","id1","rec_gender","rec_age","rec_edu","RecOpt","rec_wave","id2","cont_wave")
+
+  
+                                        #PROBABILITY OF ACCEPTING BASED ON CHARACTERISTICS RECRUITER! AND RECRUITMENT OPTION #BY USING THIS SET UP, we can change it later easily to be dependent on charact contact
+                                        wave_tmp.3   = NULL	
+						    wave_tmp.3 	 <- w-1
+						    if(wave_tmp.3>0){wave_tmp.3=1}
+
+						    #OVERALL
+						    #sim.string3 <- paste(dataset.tmp$rec_gender,dataset.tmp$rec_age,dataset.tmp$rec_edu, sep="")  #dataset.tmp$RecOpt
+                                        #HETEROGENEITY OVER WAVES
+					          sim.string3 <- paste(wave_tmp.3,dataset.tmp$rec_gender,dataset.tmp$rec_age,dataset.tmp$rec_edu, sep="")  #dataset.tmp$RecOpt
+  
+
+                                        n.accepted <-  NULL
+                                        for (id1.pos4 in 1:length(sim.string3))  
+                                        { 
+                                      
+                                      #ACCEPTING based on type of recruiter?      
+								   if(Prob_acc_individual=="Y")
+								         {
+						            p.accepted   <- c(as.numeric(AcceptTable[which(sim.string3[id1.pos4]==AcceptTablestring),c("ProbNotAccept","ProbAccept")]))
+                                       		rng_accept   <- rmultinom(n=1, size=1, prob=p.accepted) 
+								
+                                       		}else{
+                                       		#EVERYONE has same Probability of accepting  
+                                          rng_accept   <- rmultinom(n=1, size=1, prob=dbinom(0:1, size=1, prob=Prob_accepting)) 
+                                       		}
+                                          
+                                        n.accept.tmp <- c(apply(rng_accept,2,f.which))
+                                        n.accepted   <- c(n.accepted,n.accept.tmp)
+                                        } 
+                                        n.accepted[n.accepted==1] <- 0
+                                        n.accepted[n.accepted==2] <- 1  
+  
+                                          #If you are interested in non-responders
+                                          #dataset.backup2 <- NULL
+                                          #if(length(n.accepted[n.accepted==0])>0)
+                                          #{
+                                          #dataset.backup2.tmp <- dataset.tmp[n.accepted==0,]
+                                          #dataset.backup2     <- cbind(dataset.backup2.tmp,cont_gender="MISSING",cont_age="MISSINGACCEPT",cont_edu="MISSINGACCEPT",RecInterval=0,TimeCum_Cont=0)
+                                          #}else{
+                                          #dataset.backup2 <- data.frame(matrix(NA,0,15))
+                                          #names(dataset.backup2) <- colnames
+                                          #}
+      
+                                              #Create a dataset of those who accepted
+                                              dataset.tmp <- dataset.tmp[n.accepted>0,]
+                                              n.accepted  <- n.accepted[n.accepted>0]
+  
+       #print("n.acccepted")
+       #print(n.accepted)
+       #print("dataset.backup2")
+       #print(dataset.backup2)
+                                              #If no-one accepted an invitation
+                                              if(length(n.accepted)==0)  
+                                              { 
+                                              print("no contacts accepted the invitation")             #exit 3
+                                              }else{
+  
+                                                        #sim.string2 <-   paste(dataset.tmp$rec_gender,dataset.tmp$rec_age,dataset.tmp$rec_edu, sep="")
+                                                         
+ 									  wave_tmp   = NULL	
+									  wave_tmp 	 <- w-1
+									  if(wave_tmp>1){wave_tmp=2}
+
+                                                        #CONTACT GENDER  #ONAFHANKELIJK GENDER BEPALEN 2 by 2
+                                                        cont_gender <- NULL
+                                                        #OVERALL 
+ 									  #string_gender <-  paste(dataset.tmp$rec_gender,sep="")
+
+   									  #HETEROGENEITY OVER WAVES
+  									  string_gender <-  paste(wave_tmp,dataset.tmp$rec_gender,sep="")
+
+                                                        for (id1.pos5 in 1:nrow(dataset.tmp))  
+                                                        {                                           			
+									  p.gender               <- c(as.numeric(MixtableGender[which(string_gender[id1.pos5]==MixtableGender.string),c("cont_genderF","cont_genderM")]))
+                                                        rng_gender             <- rmultinom(n=1, size=1, prob=p.gender)     
+                                                        cont_gender.tmp        <- c(apply(rng_gender,2,f.which))
+                                                        cont_gender            <- c(cont_gender,cont_gender.tmp)
+                                                        } 
+                                                      
+                                                        cont_gender[cont_gender==1] <- "F"
+                                                        cont_gender[cont_gender==2] <- "M"
+                                                        dataset.tmp$cont_gender <- cont_gender
+                                                      
+                                                        #CONTACT AGE   #ONAFHANKELIJK LEEFTIJD BEPALEN, 4 by 4 table
+                                                        cont_age <- NULL
+
+									  #OVERALL
+                                                        #string_age <-  paste(dataset.tmp$rec_age,sep="")
+
+									  #HETEROGENEITY
+                                                        string_age <-  paste(wave_tmp,dataset.tmp$rec_age,sep="")
+
+
+                                                        for (id1.pos6 in 1:nrow(dataset.tmp))  
+                                                        { 
+                                                        p.age               <- c(as.numeric(MixtableAge[which(string_age[id1.pos6]==MixtableAge.string),
+                                                                               c("cont_ageA1","cont_ageA2","cont_ageA3")]))
+                                                        rng_age             <- rmultinom(n=1, size=1, prob=p.age)     
+                                                        cont_age.tmp        <- c(apply(rng_age,2,f.which))
+                                                        cont_age            <- c(cont_age,cont_age.tmp)
+                                                        } 
+                                                      
+                                                        cont_age[cont_age==1]  <- "A1"
+                                                        cont_age[cont_age==2]  <- "A2"
+                                                        cont_age[cont_age==3]  <- "A3" 
+                                                        
+                                                        dataset.tmp$cont_age <- cont_age
+                                                      
+                                                        #CONTACT EDU  2 by 2
+                                                        cont_edu <- NULL
+									  #OVERALL
+									  #string_edu <-    paste(dataset.tmp$rec_edu,sep="")   
+                 
+									  #HETEROGENEITY OVER WAVES
+                                                        string_edu <-    paste(wave_tmp,dataset.tmp$rec_edu,sep="")                    
+
+                                                        for (id1.pos7 in 1:nrow(dataset.tmp))  
+                                                        { 
+                                                        p.edu               <- c(as.numeric(MixtableEdu[which(string_edu[id1.pos7]==MixtableEdu.string),c("cont_eduA","cont_eduB")]))
+                                                        rng_edu             <- rmultinom(n=1, size=1, prob=p.edu)     
+                                                        cont_edu.tmp        <- c(apply(rng_edu,2,f.which))
+                                                        cont_edu            <- c(cont_edu,cont_edu.tmp)
+                                                        } 
+                                                      
+                                                        cont_edu[cont_edu==1] <- "A"
+                                                        cont_edu[cont_edu==2] <- "B"
+                                                        dataset.tmp$cont_edu <- cont_edu
+                                                      
+                                                        #RECRUITMENT INTERVAL #RANDOMLY DRAW FROM GAMMA DISTRIBUTION
+                                                        #dataset.tmp$RecInterval  <- sample(TimeDist,nrow(dataset.tmp),replace = TRUE)
+                                                        dataset.tmp$RecInterval   <- rGA(nrow(dataset.tmp), mu = exp(3.93991), sigma = exp(0.46571))  
+                                                        dataset.tmp$TimeCum_Cont  <- rowSums(cbind(dataset.tmp$TimeCum_Rec,dataset.tmp$RecInterval))
+
+                                                        #bind datasets
+                                                        dataset            <- rbind(dataset,dataset.tmp)
+                                                    } #exit3  
+                                      } #exit 2
+          
+			  
+                              #if(save_backupdata=="Y")
+                              #{
+                              #dataset.backup.end <- rbind(dataset.backup.end,dataset.backup,dataset.backup2)            
+                              #} #exit 1
+		    } #exit number of waves
+                
+                }
+
+               if(nrow(dataset)==0)
+               { 
+               	 if(save_backupdata=="Y")
+			         {
+		   	        dataset <- rbind(dataset.backup,dataset.backup2)
+               	#print("seeds did not invite contacts / contacts did not accept")
+      		    }else{
+			        dataset <- cbind(dataset.seeds,RecOpt=NA,rec_wave=NA,id2=NA,cont_wave=NA,cont_gender=NA,cont_age=NA,cont_edu=NA,RecInterval=NA,TimeCum_Cont=NA,cont_belief=NA)
+  			      }
+	
+		        }else{ 
+             
+              dataset2     <-  dataset
+		      #BELIEF RECRUITED CONTACTS
+             	sim.stringCONT <-   paste(dataset2$cont_gender,dataset2$cont_age,dataset2$cont_edu, sep="")
+		  	cont_belief    <- NULL
+
+				  
+		   	  	for (id1.pos11 in 1:nrow(dataset2))  
+                 	  	{                                           			
+				p.beliefCONT            <- c(as.numeric(BeliefVaccination[which(sim.stringCONT[id1.pos11]==BeliefVaccination.string),c("posBelief","negBelief")]))
+                        rng_beliefCONT          <- rmultinom(n=1, size=1, prob=p.beliefCONT)     
+                        cont_belief.tmp        <- c(apply(rng_beliefCONT,2,f.which))
+                        cont_belief            <- c(cont_belief,cont_belief.tmp)
+                    	}   
+                       dataset2$cont_belief <- cont_belief
+ 			     dataset2$cont_belief[dataset2$cont_belief==1] <- "P"
+                       dataset2$cont_belief[dataset2$cont_belief==2] <- "N"
+		    	
+              dataset2$id1 <- str_pad(string=dataset2$id1, width=max(nchar(as.character(dataset2$id2))), side="right", pad="#")
+              dataset2$id2 <- str_pad(string=dataset2$id2, width=max(nchar(as.character(dataset2$id2))), side="right", pad="#")
+              
+		 	        if(save_backupdata=="Y")
+		          {
+                    dataset.backup.end2     <- dataset.backup.end
+                    dataset.backup.end2$id1 <- str_pad(string=dataset.backup.end2$id1, width=max(nchar(as.character(dataset.backup.end$id1))), side="right", pad="#")
+            			  dataset2                <- rbind(dataset2,dataset.backup.end2)
+			        }           		
+              dataset <- dataset2[order(dataset2$treeID,dataset2$cont_wave,dataset2$id1),] 
+			
+
+		#DON'T REMOVE THE BELOW     
+              }
+		#assign(x="dataset",value=dataset, envir= .GlobalEnv)
+	
+}
+
+
+
+
+#####################################################################################
+#####################################################################################
+
+#f.sim3.result.tmp2  <- datasetVarAccept
+#head(f.sim3.result.tmp2)
+#length(unique(f.sim3.result.tmp2$id1))
+
+# Module for calculating Max. Recruits and Max. Wave per simulation per tree
+
+		findessential <- function(f.sim3.result.tmp2){
+
+		f.sim3.result.tmp2$recruit[is.na(f.sim3.result.tmp2$cont_wave)]  <- 0
+		f.sim3.result.tmp2$recruit[!is.na(f.sim3.result.tmp2$cont_wave)] <- 1
+		f.sim3.result.tmp2$rec_wave[is.na(f.sim3.result.tmp2$rec_wave)]  <- 0
+		
+		###### DETERMINE THE TIME TO REACH MAX SAMPLE SIZE (OR DIE OUT)
+		
+		#Re-order data.frame
+		Testdataframe <- f.sim3.result.tmp2[with(f.sim3.result.tmp2, order(TimeCum_Cont)), ]
+		#Testdataframe[1:1001,]
+		
+		# Investigate how many recruits till a certain time point
+		Testdataframe$recruit_CUM_adj <- cumsum(Testdataframe$recruit)
+
+				#plot(Testdataframe$TimeCum_Cont,Testdataframe$recruit_CUM_adj)
+		
+		#######
+		#######ONLY WORK FURTHER WITH DATASET TOT max.recruits 
+ 
+		#head(Testdataframe)
+		f.sim3.result.tmp2 <- Testdataframe[Testdataframe$recruit_CUM_adj<=max.recruits,]
+		#nrow(f.sim3.result.tmp2) # max.recruits		
+
+		#ENDPOINT_SUC             <- data.frame(matrix(NA,1,2))
+		#colnames(ENDPOINT_SUC)   <- c("endtime_SUC","endwave_SUC")
+		#ENDPOINT_SUC$endtime_SUC <- Testdataframe$TimeCum_Cont[Testdataframe$recruit_CUM_adj==max.recruits]
+		#ENDPOINT_SUC$endwave_SUC <- max(Testdataframe[Testdataframe$recruit_CUM_adj<=max.recruits,]$cont_wave)
+
+		ENDPOINT            	<-  data.frame(matrix(NA,1,2))
+		colnames(ENDPOINT)   	<-  c("endtime","endwave")
+		ENDPOINT$endtime 		<-  max(f.sim3.result.tmp2$TimeCum_Cont)
+		ENDPOINT$endwave   	<-  max(f.sim3.result.tmp2$cont_wave)
+
+		#DOES NOT WORK IF THERE IS EMPTY VALUE
+		#ENDPOINT_SUC  <-  data.frame(endtime_SUC=Testdataframe$TimeCum_Cont[Testdataframe$recruit_CUM_adj==max.recruits],endwave_SUC=max(Testdataframe[Testdataframe$recruit_CUM_adj<=max.recruits,]$cont_wave))
+		#ENDPOINT_FAIL <-  data.frame(endtime_FAIL=max(Testdataframe$TimeCum_Cont),endwave_FAIL=max(Testdataframe$cont_wave))
+		###### END  DETERMINE TIME TO REACH A CERTAIN SAMPLE SIZE
+
+		##############
+		#df40 <- data.frame(COMB=f.sim3.result.tmp2$SIM_COMB,SIM=f.sim3.result.tmp2$SIM,tree=f.sim3.result.tmp2$treeID,COUPON=f.sim3.result.tmp2$COUPON,mu=f.sim3.result.tmp2$mu,var=f.sim3.result.tmp2$var,probAccept=f.sim3.result.tmp2$probAccept,recruit=f.sim3.result.tmp2$recruit,rec_wave=f.sim3.result.tmp2$rec_wave,cont_wave=f.sim3.result.tmp2$cont_wave)
+		#with GENDER
+		#df40 <- data.frame(COMB=f.sim3.result.tmp2$SIM_COMB,SIM=f.sim3.result.tmp2$SIM,tree=f.sim3.result.tmp2$treeID,COUPON=f.sim3.result.tmp2$COUPON,mu_F=f.sim3.result.tmp2$mu_F,mu_M=f.sim3.result.tmp2$mu_M,var_F=f.sim3.result.tmp2$var_F,var_M=f.sim3.result.tmp2$var_M,assort_F=f.sim3.result.tmp2$AssortgenderF,assort_M=f.sim3.result.tmp2$AssortgenderM,probAccept=f.sim3.result.tmp2$probAccept,recruit=f.sim3.result.tmp2$recruit,rec_wave=f.sim3.result.tmp2$rec_wave,cont_wave=f.sim3.result.tmp2$cont_wave)
+		
+		#LAATSTE 
+		df40 <- data.frame(COMB=f.sim3.result.tmp2$SIM_COMB,SIM=f.sim3.result.tmp2$SIM,tree=f.sim3.result.tmp2$treeID,COUPON=f.sim3.result.tmp2$COUPON,recruit=f.sim3.result.tmp2$recruit,rec_wave=f.sim3.result.tmp2$rec_wave,cont_wave=f.sim3.result.tmp2$cont_wave)
+			
+		#head(df40)
+		df40$cont_wave[is.na(df40$cont_wave)] <- 0
+	
+		#number of recruits per tree, per sim
+		df41 <- aggregate(recruit~COMB+SIM+tree, data = df40, sum)
+
+		#WITH GENDER
+		#df41 <- aggregate(recruit~mu_F+mu_M+var_F+var_M+assort_F+assort_M+probAccept+COMB+SIM+tree, data = df40, sum)
+		
+		#max wave reached in each per tree, per sim
+		df42 <- aggregate(cont_wave~COMB+SIM+tree,data = df40,max)
+		#head(df42)
+		 
+		#WITH GENDER
+		#df42 <- aggregate(cont_wave~mu_F+mu_M+var_F+var_M+assort_F+assort_M+probAccept+COMB+SIM+tree,data = df40,max)
+		
+		df41$maxwave <- df42$cont_wave
+	
+		df41$dieOUT[df41$recruit<max.recruits] <- "Yes" 
+		df41$dieOUT[is.na(df41$dieOUT)] <- "No"
+		#head(df41)	
+	
+		################## FIND MEAN DEGREE OF NON-SEED INDIVIDUAL WITH AT LEAST ONE OFF SPRING
+		f.sim3.result.tmp_g  <- data.frame(id1=f.sim3.result.tmp2$id1,id2=f.sim3.result.tmp2$id2,wave=f.sim3.result.tmp2$rec_wave,COMB=f.sim3.result.tmp2$SIM_COMB,SIM=f.sim3.result.tmp2$SIM)
+		f.sim3.result.tmp_g  <- na.omit(f.sim3.result.tmp_g)
+		#head(f.sim3.result.tmp_g )	
+ 		
+		f.sim3.result.tmp_g2 <- graph.data.frame(f.sim3.result.tmp_g,directed=TRUE,vertices=NULL)	
+		
+		#PLOTTING FUNCTION
+		#adj.new3 <- get.adjacency(f.sim3.result.tmp_g2,sparse=FALSE)
+		#rdsdata.graph <- graphAM(adjMat = adj.new3, edgemode = "directed")
+		
+		#plot(rdsdata.graph,"dot", attrs=list(node=list(fillcolor="lightgreen",fontsize=0,color="white"),graph=list(rankdir="TB")),edge=list(arrowType="normal",arrowsize=0.4, style="solid"))
+		#savePlot(file="D:/Dropbox/Mart/LaCie/PHD/PHD/Article 5 Simulating RDS/R code/Simulations/Network16feb.pdf",type="pdf")
+			
+		#detach(package:Rgraphviz, unload = TRUE)
+		#detach(package:Graphiz, unload = TRUE)
+		#detach(package:igraph, unload = TRUE)
+		#require("igraph")
+		#####
+
+		#max(degree(f.sim3.result.tmp_g2)) 			
+		degreeDF 			  <- data.frame(degree(f.sim3.result.tmp_g2, mode="out"))
+		degreeDF1 			<- data.frame(id1=rownames(degreeDF),degree=degreeDF)
+		
+		degreeDF2  			<- merge(degreeDF1,f.sim3.result.tmp_g,by = "id1") 
+		degreeDF3  			<- degreeDF2[!duplicated(degreeDF2$id1), ]
+		colnames(degreeDF3) 	<- c("id1","degree",'id2','wave','SIM','COMB')
+		#degreeDF4  		<- degreeDF3[degreeDF3$wave>0,]
+		
+		#ONLY CALCULATED OVER THOSE WITH ONE OFFSPRING + ONLY OUTDEGREE!
+		df41$degreeM_wo  	<-  mean(degreeDF3$degree)
+		df41$degreeSD_wo	<-  sd(degreeDF3$degree)
+
+		#WITH OFF SPRING INCLUDED
+		df41$degreeM_wth 	<-  mean(degreeDF1$degree.f.sim3.result.tmp_g2..mode....out..)
+		df41$degreeSD_wth	<-  sd(degreeDF1$degree.f.sim3.result.tmp_g2..mode....out..)
+		
+		#f.sim3.result.tmp2 <- f.sim3.result.tmp2[f.sim3.result.tmp2$SIM_COMB==4,]	
+
+
+		#Determine proportion female recruiters
+		gender <-  data.frame(matrix(NA,1,5))
+		colnames(gender)   		<- c("Gender_Seed","N_Recruiters","N_Rec_Female","N_Cont_Female","N_Cont_Male")
+		gender$Gender_Seed 		<- f.sim3.result.tmp2[1,]$rec_gender  #gender is in first row
+		gender$N_Recruiters		<- length(unique(f.sim3.result.tmp2$id1))
+				
+		#temp_fem 			<- f.sim3.result.tmp2[!duplicated(f.sim3.result.tmp2$id1), ]
+		#gender$N_Rec_Female 	<- table(temp_fem$rec_gender)[1]
+
+		   N_Cont_Female.tmp       <- data.frame(table(factor(f.sim3.result.tmp2$cont_gender)))
+	         gender$N_Cont_Female    <-  if (length(grep("F", N_Cont_Female.tmp$Var1)) == 0){ print(0)}else{ N_Cont_Female.tmp$Freq[N_Cont_Female.tmp$Var1=="F"]}
+	         gender$N_Cont_Male    <-  if (length(grep("M", N_Cont_Female.tmp$Var1)) == 0){ print(0)}else{ N_Cont_Female.tmp$Freq[N_Cont_Female.tmp$Var1=="M"]}
+
+		#DETERMINE proportion AGE A1,A2,A3 recruiters
+		   age <- data.frame(matrix(NA,1,4))
+		   colnames(age)    <- c("Age_Seed","N_Cont_A1","N_Cont_A2","N_Cont_A3")
+		   age$Age_Seed      <- f.sim3.result.tmp2[1,]$rec_age
+		   N_Cont_A1.tmp     <- data.frame(table(factor(f.sim3.result.tmp2$cont_age)))
+	         age$N_Cont_A1    <-   if (length(grep("A1", N_Cont_A1.tmp$Var1)) == 0){ print(0)}else{ N_Cont_A1.tmp$Freq[N_Cont_A1.tmp$Var1=="A1"]}
+		  age$N_Cont_A2    <-   if (length(grep("A2", N_Cont_A1.tmp$Var1)) == 0){ print(0)}else{ N_Cont_A1.tmp$Freq[N_Cont_A1.tmp$Var1=="A2"]}
+		  age$N_Cont_A3    <-   if (length(grep("A3", N_Cont_A1.tmp$Var1)) == 0){ print(0)}else{ N_Cont_A1.tmp$Freq[N_Cont_A1.tmp$Var1=="A3"]}
+
+		 #DETERMINE proportion EDU 
+		 edu <- data.frame(matrix(NA,1,3))		
+		 colnames(edu)    <- c("Edu_Seed","N_Cont_eduA","N_Cont_eduB")
+		 edu$Edu_Seed      <- f.sim3.result.tmp2[1,]$rec_edu
+ 
+ 		N_Cont_edu.tmp     <- data.frame(table(factor(f.sim3.result.tmp2$cont_edu)))
+		edu$N_Cont_eduA    <-  if (length(grep("A", N_Cont_edu.tmp$Var1)) == 0){ print(0)}else{ N_Cont_edu.tmp$Freq[N_Cont_edu.tmp$Var1=="A"]}
+		edu$N_Cont_eduB    <-  if (length(grep("B", N_Cont_edu.tmp$Var1)) == 0){ print(0)}else{ N_Cont_edu.tmp$Freq[N_Cont_edu.tmp$Var1=="B"]}
+
+		#ADD ENDPOINT TIME
+		df50 <- cbind(df41,ENDPOINT,gender,age,edu)
+
+		return(df50)
+		}
+
+#####################################################################################
+######################## SIMULATION FUNCTIONS ####################################################
+
+#Debug function
+#options(error=recover)
+#options(error=NULL)
+
+#SIMULATE 1 scenario n.times
+sim1scenario <- function(n.times){
+	#print(environment())
+	f.sim1.result  		<- data.frame(matrix(NA,0,16)) 
+  	colnames(f.sim1.result)  <- c("SIM",colnames)  
+	for(n.sim in 1:n.times)
+	{ 	
+   	timeval <- date()
+  	print(paste("SIM",n.sim,":",timeval))
+	dataset          			<- data.frame(matrix(NA,0,15))
+	names(dataset)   			<- colnames
+	dataset.backup.end             <- data.frame(matrix(NA,0,15))
+    	names(dataset.backup.end)      <- colnames
+	f.sim1.result.tmp			<- f.sim(w.max)
+	f.sim1.result.tmp	 		<- cbind(SIM=n.sim,f.sim1.result.tmp)
+	f.sim1.result 		      <- rbind(f.sim1.result,f.sim1.result.tmp)
+	}
+      assign(x="f.sim1.result",value=f.sim1.result, envir= .GlobalEnv)
+}
+
+#test
+#sim1scenario(n.times=3)
+
+
+# Simulate c scenarios in which number of coupons are increasing  n.times 
+SimScenarioVarCoupons <- function(n.times,max.coupon)
+{
+	f.sim2.result 		<- data.frame(matrix(NA,0,17)) 
+  	colnames(f.sim2.result) <- c("max.COUPON","SIM",colnames) 
+	n.coupon		      <- NULL    
+
+	for(j in 1:length(max.coupon))
+ 	{
+ 	timeval <- date()
+  	print(paste("coupon",j,":",timeval))
+  	f.sim2.result.tmp2  			 <- data.frame(matrix(NA,0,16)) 
+  	colnames(f.sim2.result.tmp2)   	 <- c("SIM",colnames) 
+  	
+		for(n.sim in 1:n.times)
+  		{
+   		n.coupon <<- j
+   		print(paste("SIM",n.sim,":",timeval))
+   		#cat('point 1 mem', memory.size(), memory.size(max=TRUE), 'nn')
+  
+  		dataset                     <<- data.frame(matrix(NA,0,15))
+  		names(dataset)              <<- colnames  
+  		dataset.backup.end          <<- data.frame(matrix(NA,0,15))
+  		names(dataset.backup.end)   <<- colnames
+	
+  		F_beta_inv     <- NULL        
+  		F_beta_inv     <<- as.numeric(((max.coupon[j]-con_meanInv) /con_meanInv) *F_alpha_inv)
+	
+  		f.sim2.result.tmp     <- f.sim(w.max) 
+  		f.sim2.result.tmp	    <- cbind(SIM=n.sim,f.sim2.result.tmp)
+  		f.sim2.result.tmp2    <- rbind(f.sim2.result.tmp2,f.sim2.result.tmp)
+      		}										
+	f.sim2.result.tmp3	    <- cbind(max.COUPON=max.coupon[j],f.sim2.result.tmp2)
+	write.table(f.sim2.result.tmp3,file = FILEPATH1, quote=FALSE,sep=",",col.names = FALSE,row.names=FALSE,append = TRUE)
+	#f.sim2.result 		    <- rbind(f.sim2.result,f.sim2.result.tmp3)
+	} 
+	assign(x="f.sim2.result",value=f.sim2.result, envir= .GlobalEnv)
+}
+
+
+
+
+SimScenarioVarBetaBinomialDistrANDprobofAccept <- function(n.times,n.coupon,accepting)
+{
+	f.sim4.result 		 <- data.frame(matrix(NA,0,17)) 
+  	colnames(f.sim4.result)  <- c("probAccept","SIM",colnames) 
+	n.sim 			 <- NULL
+	f.sim4.result.tmp3       <- NULL	 
+	
+	for(p.ac in 1:length(accepting))
+ 	{
+ 	timeval <- date()
+  	print(paste("prob accept",accepting[p.ac],":",timeval))
+  	f.sim4.result.tmp2  			 <- data.frame(matrix(NA,0,16)) 
+  	colnames(f.sim4.result.tmp2)   	 <- c("SIM",colnames) 
+	 
+		for(n.sim in 1:n.times)
+  		{
+		Prob_accepting 		   <<- accepting[p.ac]	
+		print(paste("SIM",n.sim,":",timeval))  
+  		dataset                     <<- data.frame(matrix(NA,0,15))
+  		names(dataset)              <<- colnames  
+  		dataset.backup.end          <<- data.frame(matrix(NA,0,15))
+  		names(dataset.backup.end)   <<- colnames
+			
+  		f.sim4.result.tmp     <- f.sim(w.max) 
+  		f.sim4.result.tmp	    <- cbind(SIM=n.sim,f.sim4.result.tmp)
+  		f.sim4.result.tmp2    <- rbind(f.sim4.result.tmp2,f.sim4.result.tmp)
+		#write.table(f.sim4.result.tmp2,file = FILEPATH1, quote=FALSE,sep=",",col.names=FALSE,row.names=FALSE,append=TRUE)
+      	}
+	f.sim4.result.tmp3	    <- cbind(probAccept=accepting[p.ac],f.sim4.result.tmp2)
+	write.table(f.sim4.result.tmp3,file = FILEPATH1, quote=FALSE,sep=",",col.names = FALSE,row.names=FALSE,append = TRUE)
+	#f.sim4.result 		    <- rbind(f.sim4.result,f.sim4.result.tmp3)
+	} 
+   assign(x="f.sim4.result",value=f.sim4.result, envir= .GlobalEnv)
+}
+
+#####################################################################################
+#####################################################################################
+
+
+######################## PLOT FUNCTIONS ####################################################
+#Plot number of recruits
+plotoverallrecruits <- function(f.sim1.result,title="number of recruits per simulation",lineAY=455,histbreaks){
+	if(n.seeds<100){
+	f.sim1.result$countRecruit[is.na (f.sim1.result$cont_wave)] <- 0
+	f.sim1.result$countRecruit[!is.na(f.sim1.result$cont_wave)] <- 1
+	} else{
+	f.sim1.result$countRecruit <- 1
+	}
+
+	# number of recruits per participant in each trial
+	REC.agg <- aggregate(f.sim1.result$countRecruit, by=list(f.sim1.result$SIM,f.sim1.result$id1),FUN=sum, na.rm=TRUE)
+	# number of recruits per trial
+	INV.agg <- aggregate(REC.agg$x, by=list(REC.agg$Group.1),FUN=sum, na.rm=TRUE)
+	#nrow(INV.agg) #number of trials
+	df5 <- data.frame(trials=as.numeric(INV.agg$Group.1),MaxPart=INV.agg$x)
+
+	hist(df5$MaxPart,breaks=histbreaks,main=title, xlab="number of recruits", ylab="number of simulations", cex.lab=1.5, cex.axis=1.5)
+	abline(v=lineAY,col="blue")
+ }
+
+#TEST
+#plotoverallrecruits(f.sim1.result,histbreaks=20)
+
+# Mean recruits per respondent per simulation
+plotmeanrecruits <- function(f.sim1.result, title="mean recruited contacts per respondent per simulation"){
+	 if(n.seeds<100){
+	 f.sim1.result$countRecruit[is.na (f.sim1.result$cont_wave)]  <- 0
+	 f.sim1.result$countRecruit[!is.na(f.sim1.result$cont_wave)] <- 1
+	 } else{
+	 f.sim1.result$countRecruit <- 1
+	 }
+	
+	#head(f.sim1.result)
+	INV.agg <- aggregate(f.sim1.result$countRecruit, by=list(f.sim1.result$SIM,f.sim1.result$id1),FUN=sum, na.rm=TRUE) #note only active seeds were included and contact persons were included but only if they also recruited others )
+	INV.agg <- INV.agg[order(INV.agg$Group.1),]
+	 
+	INV.agg <- aggregate(INV.agg$x, by=list(INV.agg$Group.1),FUN=mean, na.rm=TRUE)
+	 #only for those who send an invitation:
+	 print(paste("average recruited per respondent(overall)= ", round(mean(INV.agg$x),digit=3),sep=""))   # 0.709 		
+ 	print("conditional that each included participant send an invitation. Estimate is overestimation as non-succesful contact persons are excluded")
+	hist(INV.agg$x,breaks=50, xlab="mean recruited for each simulation",ylab='number of simulations', main=title,cex.lab=1.5, cex.axis=1.5)
+}
+		
+#TEST
+#plotmeanrecruits(f.sim1.result)
+
+# plot median (overall) number of waves
+plotMedianWavesOverall <- function(f.sim1.result,title="median number of waves per simulation",histbreaks){
+		
+	df_temp1  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)
+	#print(paste("number of unique respondents:",nrow(df3) ))
+	df3$count <- 1
+	#df3 <- df3[order(df3$time),]
+
+	#Get Median Waves per simulation
+	df7 <- data.frame(trial=df3$sim,wave=df3$wave,tree=df3$treeID)
+	dt  <- data.table(df7)
+	dt1 <- dt[,list(median=median(wave),sd=sd(wave)),by=trial]
+	#nrow(dt1)
+	hist(dt1$median,breaks=histbreaks,main=title, xlab="median number of waves",ylab="number of simulations",cex.lab=1.5, cex.axis=1.5)
+}
+#test
+#plotMedianWavesOverall(f.sim1.result,histbreaks=20)
+
+# plot number of waves reach  DIT MOET EIGENLIJK BAR CHART WORDEN!?
+plotWavesOverall <- function(f.sim1.result,title="counting waves per simulation",histbreaks){
+		
+	df_temp1  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)
+	#print(paste("number of unique respondents:",nrow(df3) ))
+	df3$count <- 1
+	#df3 <- df3[order(df3$time),]
+
+	#Get Waves per simulation
+	df7 <- data.frame(trial=df3$sim,wave=df3$wave,tree=df3$treeID)
+	hist(df7$wave,breaks=histbreaks,main=title, xlab="wave",ylab="number of simulations",cex.lab=1.5, cex.axis=1.5)
+}
+#test
+#plotWavesOverall(f.sim1.result,histbreaks=20)
+
+
+
+# plot max (overall) number of waves
+plotMaxWaveOverall <- function(f.sim1.result,title="max number of waves per simulation",histbreaks){
+		
+	df_temp1  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)
+	#print(paste("number of unique respondents:",nrow(df3) ))
+	df3$count <- 1
+	#df3 <- df3[order(df3$sim),]
+	#table(df3$sim)
+
+	#Get max number of Waves per simulation
+	df7 <- data.frame(trial=df3$sim,wave=df3$wave,tree=df3$treeID)
+	dt  <- data.table(df7)
+	dt1 <- dt[,list(max=max(wave)),by=trial]
+	#nrow(dt1)
+	hist(dt1$max,breaks=histbreaks,main=title, xlab="max number of waves",ylab="number of simulations",cex.lab=1.5, cex.axis=1.5)
+}
+#test
+#plotMaxWaveOverall(f.sim1.result,histbreaks=20)
+
+# plot sample over wave: proportion in each wave
+plotSampleOverWaves <- function(f.sim1.result,plotGender,plotAge){
+		
+	df_temp1  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)    #remove unsuccessful
+	df3$count <- 1
+	
+	if(plotAge=="Y"){
+	twave <- data.frame(table(df3$sim,df3$age,df3$wave))
+	data_wide <- dcast(twave, Var1 +Var3 ~ Var2, value.var="Freq")
+	names(data_wide) <- c('trial','wave','A1',"A2","A3","A4")
+	data_wide <- data_wide[data_wide$A1>0 | data_wide$A2>0| data_wide$A3>0| data_wide$A4>0,]
+	data_wide$tot <- rowSums(data_wide[,3:6])
+		
+	df4 <- data.table(data_wide)
+	A1 <- df4[, cumsum(A1)/cumsum(tot), by =c('trial','wave')]   
+	A1$Group <- "A1"
+	A2 <- df4[, cumsum(A2)/cumsum(tot), by =c('trial','wave')]   
+	A2$Group <- "A2"
+	A3 <- df4[, cumsum(A3)/cumsum(tot), by =c('trial','wave')]   
+	A3$Group <- "A3"
+	A4 <- df4[, cumsum(A4)/cumsum(tot), by =c('trial','wave')]   
+	A4$Group <- "A4"
+		
+	df5 <- rbind(A1,A2,A3,A4)
+	df5$string  <- paste(df5$Group,"Sim",df5$trial, sep="_")  
+		
+	#head(df5)	
+
+	ggplot(data=df5,aes(x=wave,y=V1,group=string,color=factor(string),linetype=factor(Group)))+
+ 	geom_line(size=1.2,alpha=0.3)+
+ 	theme_bw(base_size = 20)+
+ 	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+ 	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  	theme(axis.text.y = element_text(color = "black", size = 15))+
+  	theme(legend.title=element_blank())+
+  	theme(legend.position = "none")+
+  	theme(axis.text.x = element_text(angle = 0))+
+  	xlab("waves (colors=trials; line types=age groups)") +
+  	ylab("proportion")+
+  	labs(title="Proportion of age groups in each wave")
+	}else{
+
+	if(plotGender=="Y"){
+	twave <- data.frame(table(df3$sim,df3$gender,df3$wave))
+	data_wide <- dcast(twave, Var1 +Var3 ~ Var2, value.var="Freq")
+	data_wide <- data_wide[data_wide$F>0 | data_wide$M>0,]
+
+	#require(tidyr)					#for earlier R versions
+	#data_wide <- spread(twave, Var2,Freq)	#for earlier R versions
+
+	names(data_wide) <- c('trial','wave','F',"M")
+	data_wide$total <- rowSums(data_wide[,3:4])
+	
+	#proportion per wave
+	df4 <- data.table(data_wide)
+	df5 <- df4[, cumsum(F)/cumsum(total), by =c('trial','wave')]
+		
+  	ggplot(data=df5,aes(x=wave,y=V1,group=trial,colour=trial))+
+  	geom_line(size=1.2,alpha=0.3)+
+  	theme_bw(base_size = 20)+
+  	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  	theme(axis.text.y = element_text(color = "black", size = 15))+
+  	theme(legend.title=element_blank())+
+  	theme(legend.position = "none")+
+  	theme(axis.text.x = element_text(angle = 0))+
+  	xlab("waves") +
+  	ylab("proportion")+
+  	labs(title="Proportion of females in each wave")
+	}}
+}
+#test
+#plotSampleOverWaves(f.sim1.result,plotGender="Y",plotAge="N")
+
+# plot sample over waves: cumulative proportion (starting from wave 0)
+plotSampleOverWavesCUM <- function(f.sim1.result,plotGender,plotAge)
+{
+	df_temp1  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)    #remove unsuccessful
+	df3$count <- 1
+	
+	if (plotGender=="Y"){
+	twave <- data.frame(table(df3$sim,df3$gender,df3$wave))
+	data_wide <- dcast(twave, Var1 +Var3 ~ Var2, value.var="Freq")
+	data_wide <- data_wide[data_wide$F>0 | data_wide$M>0,]
+
+	#require(tidyr)					#for earlier R versions
+	#data_wide <- spread(twave, Var2,Freq)	#for earlier R versions
+
+	names(data_wide) <- c('trial','wave','F',"M")
+	data_wide$total  <- rowSums(data_wide[,3:4])
+
+	data_wide <- within(data_wide, {
+	cumsumFemale <- ave(F,trial, FUN = cumsum)
+	})
+
+	data_wide <- within(data_wide, {
+  	cumsumTotal <- ave(total,trial, FUN = cumsum)
+	})
+	
+	df4 <- data.table(data_wide)
+	df5 <- df4[, sum(cumsumFemale)/sum(cumsumTotal), by =c('trial','wave')]
+
+  	ggplot(data=df5,aes(x=wave,y=V1,group=trial,colour=trial))+
+  	geom_line(size=1.2,alpha=0.3)+
+ 	 theme_bw(base_size = 20)+
+  	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  	theme(axis.text.y = element_text(color = "black", size = 15))+
+  	theme(legend.title=element_blank())+
+  	theme(legend.position = "none")+
+  	theme(axis.text.x = element_text(angle = 0))+
+  	xlab("waves") +
+  	ylab("proportion")+
+  	labs(title="Cumulative Proportion of females over waves")
+	}else{
+	
+	if (plotAge=="Y"){
+	twave <- data.frame(table(df3$sim,df3$age,df3$wave))
+	data_wide <- dcast(twave, Var1 +Var3 ~ Var2, value.var="Freq")
+	names(data_wide) <- c('trial','wave','A1',"A2","A3","A4")
+	data_wide <- data_wide[data_wide$A1>0 | data_wide$A2>0| data_wide$A3>0| data_wide$A4>0,]
+	data_wide$tot <- rowSums(data_wide[,3:6])
+	
+	data_wide <- within(data_wide, {
+  	cumsumA1 <- ave(A1,trial, FUN = cumsum)
+	})
+
+	data_wide <- within(data_wide, {
+  	cumsumA2 <- ave(A2,trial, FUN = cumsum)
+	})
+
+	data_wide <- within(data_wide, {
+  	cumsumA3 <- ave(A3,trial, FUN = cumsum)
+	})
+
+	data_wide <- within(data_wide, {
+  	cumsumA4 <- ave(A4,trial, FUN = cumsum)
+	})
+
+	data_wide <- within(data_wide, {
+ 	 cumsumTotal <- ave(tot,trial, FUN = cumsum)
+	})
+
+	df4 <- data.table(data_wide)
+
+	A1 <- df4[, sum(cumsumA1)/sum(cumsumTotal), by =c('trial','wave')]
+	A1$Group <- "A1"
+	A2 <- df4[, sum(cumsumA2)/sum(cumsumTotal), by =c('trial','wave')]
+	A2$Group <- "A2"
+	A3 <- df4[, sum(cumsumA3)/sum(cumsumTotal), by =c('trial','wave')]
+	A3$Group <- "A3"
+	A4 <- df4[, sum(cumsumA4)/sum(cumsumTotal), by =c('trial','wave')]
+	A4$Group <- "A4"
+		
+	df5 		<- rbind(A1,A2,A3,A4)
+	df5$string  <- paste(df5$Group,"Sim",df5$trial, sep="_")  
+
+	ggplot(data=df5,aes(x=wave,y=V1,group=string,color=factor(string),linetype=factor(Group)))+
+ 	geom_line(size=1.2,alpha=0.3)+
+ 	theme_bw(base_size = 20)+
+ 	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+ 	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  	theme(axis.text.y = element_text(color = "black", size = 15))+
+  	theme(legend.title=element_blank())+
+  	theme(legend.position = "none")+
+  	theme(axis.text.x = element_text(angle = 0))+
+  	xlab("waves (colors=trials; line types=age groups)") +
+  	ylab("proportion")+
+  	labs(title="Cumulative proportion of age groups over waves")
+	}}
+}
+#test
+#plotSampleOverWavesCUM(f.sim1.result,plotGender,plotAge)
+
+# plot size of trees in each simulation, each dot is tree in a simulation
+plotSizeTrees <- function(f.sim1.result)
+{
+	df_temp1  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)    #remove unsuccessful
+	df3$count <- 1
+
+	#size of trees in each trials (not aggregated)  
+	df20 <- data.frame(df3$sim,df3$treeID,count=1)
+	head(df20)
+	df20 <- aggregate(df20$count, by=list(df20$df3.sim,df20$df3.treeID),FUN=sum, na.rm=TRUE)
+
+	df20 <- df20[order(as.numeric(df20$ Group.1)),]
+	#nrow(df20)   #trials x #seeds
+	df21 <- df20[df20$x>=0,]  #only those with .. or more nodes
+	colnames(df21) <- c("trial","tree","number")
+	
+	df25 <- aggregate(df21$trial,by=list(trial=df21$trial,number=df21$number),length)   #counts the number of trees with same y
+	colnames(df25) <- c("trial","number","count")	
+	
+	ggplot(df25, aes(x=trial,y=number))+
+  	geom_point(aes(colour = count))+
+ 	 #scale_y_continuous(breaks=c(0,1,2,10,25,50,100,150,250,500,1000,1500,2000,3000))+
+  	ylab("number of nodes in trees")+
+  	xlab('simulation')+
+	#labs(title="note: each dot is a tree")+
+  	theme_bw(base_size = 20)+
+  	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+ 	 theme(axis.text.x = element_text(color = "black", size = 15))+ 
+ 	 theme(axis.text.y = element_text(color = "black", size = 15))+
+  	 #theme(legend.title=element_blank())+
+ 	 labs(colour = "freq.\ntrees ") +
+	theme(legend.position="right")+
+  	theme(axis.text.x = element_text(angle = 0)) +
+ 	 scale_colour_gradient(low = "lightgreen")
+}
+
+# plot max wave reached in trees in each simulation (not aggregated) 
+plotMaxWaveinTrees <- function(f.sim1.result)
+{
+	df_temp1  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)    #remove unsuccessful
+	df3$count <- 1
+
+	df22 <- data.frame(df3$sim,df3$treeID,df3$wave)
+	#head(df22)
+	df23 <- aggregate(data = df22,df3.wave~df3.sim+df3.treeID,max)
+
+	#head(df23)
+	df23 <- df23[order(as.numeric(df23$df3.sim)),]
+	colnames(df23) <- c("trial","tree","wave")
+	df23 <- df23[df23$wave>0,] #only those tree with size bigger than 0 waves.
+	
+	df24 <- aggregate(df23$trial,by=list(trial=df23$trial,wave=df23$wave),length)  #counts the number of trees with same y
+	colnames(df24) <- c("trial","wave","count")		
+			
+	ggplot(df24, aes(x=trial,y=wave))+
+ 	geom_point(aes(colour = count))+
+  	#scale_y_continuous(breaks=c(2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,25,50,100,150,250,500,900))+
+  	ylab("max wave reached in tree")+
+  	xlab('simulation')+
+	#labs(title="note: each dot is a tree")+
+  	theme_bw(base_size = 20)+
+  	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  	theme(axis.text.y = element_text(color = "black", size = 15))+
+  	#theme(legend.title=element_blank())+
+  	theme(legend.position="right")+
+	labs(colour = "count\ntrees ") +
+  	theme(axis.text.x = element_text(angle = 0)) 
+}
+
+# plot #Number of participants at widest point #ONLY USEFUL IF YOU HAVE A FEW  Seeds 
+plotWidestPointinTrees <- function(f.sim1.result)
+{
+	df_temp1  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)    #remove unsuccessful
+	df3$count <- 1
+
+	#INCLUDING EACH TREE
+	df22 <- data.frame(df3$sim,df3$treeID,df3$wave,df3$count)
+	#head(df22)
+	df23 <- aggregate(data = df22,df3.count~ df3.sim+df3.treeID+df3.wave,sum)	
+	#head(df23)
+	df24 <- aggregate(data = df23,df3.count~df3.sim+df3.treeID,max)
+	#head(df24)
+	df25 <- df24[order(as.numeric(df24$df3.sim)),]
+	colnames(df25) <- c("trial","tree","nodes")
+	
+	df26 <- aggregate(df25$trial,by=list(trial=df25$trial,nodes=df25$nodes),length)  #counts the number of trees with same y
+	colnames(df26) <- c("trial","nodes","count")	
+
+	#SIMPLE WITHOUT INCLUDING TREES
+	#df18 <- table(df3$sim,df3$wave)
+	#df19 <- data.frame(df18[,-1])
+	#maxfs <- data.frame(apply(df19, 1, max))
+	#maxfs$x <- rownames(maxfs)
+	#hist(maxfs[,1],breaks=15,xlab="number of nodes",main="widest point in trees")
+
+	plot1 <- ggplot(df26, aes(x=trial,y=nodes))+
+ 	geom_point(aes(colour =count))+
+  	#scale_y_continuous(breaks=c(2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,25,50,100,150,250,500,900))+
+  	ylab("number of nodes at widest point")+
+  	xlab('simulation')+
+	#labs(title="note: each dot is a tree")+
+  	theme_bw(base_size = 20)+
+  	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  	theme(axis.text.y = element_text(color = "black", size = 15))+
+  	#theme(legend.title=element_blank())+
+  	theme(legend.position="right")+
+	labs(colour = "count.\ntrees ") +
+  	theme(axis.text.x = element_text(angle = 0)) 
+
+	df30 <- merge(aggregate(data = df23,df3.count~df3.sim+df3.treeID,max),df23)   #THIS GIVES ALL MAX, but if count is equal, then also all these waves
+	df31 <- df30[!duplicated(df30[,c('df3.sim','df3.treeID','df3.count')]),]	     
+	colnames(df31) <- c("trial","tree","node","wave")
+	df32 <- df31[order(as.numeric(df31$trial)),]
+	#table(df32$wave,df32$trial)	
+	
+	df33 <- aggregate(df25$trial,by=list(trial=df32$trial,wave=df32$wave,nodes=df32$node),length)  #counts the number of trees in each simulation with same wave and nodes
+	colnames(df33) <- c("trial","wave","nodes","count")	
+
+	plot2 <- ggplot(df33, aes(x=trial,y=wave))+
+ 	geom_point(aes(color = count))+
+  	#scale_y_continuous(breaks=c(2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,25,50,100,150,250,500,900))+
+  	ylab("wave with most # of nodes")+
+  	xlab('simulation')+
+	#labs(title="number of the wave with most nodes in each tree")+
+  	theme_bw(base_size = 20)+
+  	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  	theme(axis.text.y = element_text(color = "black", size = 15))+
+  	#theme(legend.title=element_blank())+
+  	theme(legend.position="right")+
+	labs(colour = "count\ntrees ") +
+  	theme(axis.text.x = element_text(angle = 0)) 	
+
+	grid.arrange(plot1, plot2, ncol=2)
+}
+#test
+#plotWidestPointinTrees(f.sim1.result)
+
+
+#@@@ function 2
+# plot number of recruits by increasing number of coupons 
+plotRecruitsvsIncreasingCoupons <- function(f.sim2.result)
+{
+	f.sim2.result$recruit[is.na(f.sim2.result$cont_wave)] <- 0
+	f.sim2.result$recruit[!is.na(f.sim2.result$cont_wave)]<- 1
+
+	df26 <- data.frame(f.sim2.result$max.COUPON,f.sim2.result$SIM, f.sim2.result$treeID, f.sim2.result$recruit)
+	nrow(df26)
+	head(df26)
+	df27 <- aggregate(f.sim2.result.recruit~f.sim2.result.max.COUPON+f.sim2.result.SIM, data = df26, sum)  #sum recruits in each scenario for each sim the #recruits
+	head(df27)
+	colnames(df27) <- c("coupon","sim","recruits")	
+		
+	df33 <- aggregate(df27$coupon,by=list(coupon=df27$coupon,recruits=df27$recruits),length)  #counts for each COUPON the same number of recruits in each SIM 
+	colnames(df33) <- c("coupon","recruits","count")	
+
+	df33$coupon <- as.character(df33$coupon)
+	#df33 <- df33[order(as.numeric(df33$coupon)),]
+	levels_input <- as.character(1:max(max.coupon))
+	df33$coupon <- ordered(df33$coupon, levels = levels_input)
+
+	#COLOURED HEXAGONS!
+	plot1 <- ggplot(df33, aes(x=coupon,y=recruits))+
+ 		 geom_point(aes(colour = count))+
+ 		 #scale_y_log10(breaks=c(1,2,10,25,50,100,150,250,500,900))+
+  		ylab("number of recruits")+
+  		xlab('number of coupons')+
+ 		 theme_bw(base_size = 20)+
+  		theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  		theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+ 		 theme(axis.text.x = element_text(color = "black", size = 15))+ 
+ 		 theme(axis.text.y = element_text(color = "black", size = 15))+
+  		 # theme(legend.title=element_blank())+
+  		labs(colour = "count.\nsim") +
+		theme(legend.position="right")+
+  		theme(axis.text.x = element_text(angle = 0)) +
+		  scale_colour_gradient(low = "lightgreen")
+
+		#MAX WAVE REACHED IN EACH SIM
+		df200 <- data.frame(sim=f.sim2.result$SIM,coupon=f.sim2.result$max.COUPON,wave=f.sim2.result$cont_wave)
+		dt <- data.table(df200)
+		dt1 <- dt[,list(max=max(wave)),by=c("sim","coupon")]
+		#nrow(dt1)   # n.sim * length(probabilities)
+
+		dt2 <- data.frame(dt1)
+		#Set all seeds to 0
+		dt2$max[is.na(dt2$max)]=0
+
+		dt3 <- aggregate(dt2$coupon,by=list(coupon=dt2$coupon,max=dt2$max),length)  
+		colnames(dt3) <- c("coupon","max","count")	
+		levels_input <- as.character(1:max(max.coupon))
+		dt3$coupon <- as.character(dt3$coupon)
+		dt3$coupon <- ordered(dt3$coupon, levels = levels_input)
+	
+		plot2 <- ggplot(dt3, aes(x=coupon,y=max),)+
+  		geom_point(aes(colour = count))+
+  		#scale_y_log10(breaks=c(1,2,10,25,50,100,150,250,500,1000,1500,2000,3000))+
+  		ylab("max. wave reached")+
+ 		 xlab('number of coupons')+
+  		theme_bw(base_size = 20)+
+  		theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  		theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  		theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  		theme(axis.text.y = element_text(color = "black", size = 15))+
+   		# theme(legend.title=element_blank())+
+  		labs(colour = "count.\nsim") +
+		theme(legend.position="right")+
+ 		 theme(axis.text.x = element_text(angle = 0)) +
+  		scale_colour_gradient(low = "lightgreen")
+
+	grid.arrange(plot1, plot2, ncol=2)
+} 
+
+
+
+#@@@ function 3
+# plot number of recruits and max. wave reached AGGREGATED (over all trees) for different scenarios in which probability of accepting is increased
+plotSampleIncreasingAcceptationAggregatedRecruit <- function(f.sim3.result,max_yas){
+
+	df.temp <- f.sim3.result	
+	df.temp$recruit[is.na(df.temp$cont_wave)] <- 0
+	df.temp$recruit[!is.na(df.temp$cont_wave)]<- 1
+
+	df40 <- data.frame(df.temp$SIM,df.temp$treeID,df.temp$probAccept,df.temp$recruit)
+	#head(df40)
+
+	df41 <- aggregate(df.temp.recruit~df.temp.SIM+df.temp.probAccept, data = df40, sum)
+	df42 <- aggregate(df41$df.temp.probAccept,by=list(ProbAccept=df41$df.temp.probAccept,recruit=df41$df.temp.recruit),length)    #COUNTS SIMULATION
+	colnames(df42) <- c("prob","recruit","count")	
+	
+	df42$prob  <- as.numeric(df42$prob)
+	#df42$prob <- ordered(df42$prob, levels = c("0","0.05","0.1","0.15","0.2","0.25","0.3","0.35","0.4","0.45","0.5","0.55","0.6","0.65","0.7","0.75","0.8","0.85","0.9","0.95","1"))
+
+	df42$recruit[df42$recruit>max.recruits]=max.recruits		
+
+	#NUMBER OF RECRUITS Overall
+	ggplot(df42, aes(x=prob,y=recruit),)+
+  	geom_point(aes(colour = count,size=count))+
+ 	#scale_y_log10(breaks=c(1,2,10,25,50,100,150,250,500,1000,2000,3000,5000,10000))+
+ 	#scale_y_continuous(limits = c(0, max_yas))+ 
+	#geom_abline(intercept = max.recruits, slope = 0)+
+	ylab("number of recruits")+
+ 	 xlab('probability of accepting invitation')+
+	#labs(title="note: each dot is a tree")+
+  	theme_bw(base_size = 20)+
+  	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+ 	 theme(axis.text.y = element_text(color = "black", size = 15))+
+   	# theme(legend.title=element_blank())+
+  	labs(colour = "count.\nsim") +
+	theme(legend.position="right")+
+  	theme(axis.text.x = element_text(angle = 0)) +
+  	scale_colour_gradient(low = "lightgreen")	
+}
+
+
+#DEZE WERKT PER 18/01
+plotSampleIncreasingAcceptationHistogramsRecruit <- function(f.sim3.result,BIN){
+	df.temp <- f.sim3.result	
+	df.temp$recruit[is.na(df.temp$cont_wave)] <- 0
+	df.temp$recruit[!is.na(df.temp$cont_wave)]<- 1
+	df40 <- data.frame(df.temp$SIM,df.temp$treeID,df.temp$probAccept,df.temp$recruit)
+	df41 <- aggregate(df.temp.recruit~df.temp.SIM+df.temp.probAccept, data = df40, sum)
+	colnames(df41) <- c("sim","prob","recruit")	
+		
+	df41$prob2 <- cut(df41$prob, breaks = seq(0, 1, by = 0.05))
+
+	df41$prob2  <- as.factor(df41$prob2)
+#	df41$prob <- ordered(df41$prob, levels = c("0","0.05","0.1","0.15","0.2","0.25","0.3","0.35","0.4","0.45","0.5","0.55","0.6","0.65","0.7","0.75","0.8","0.85","0.9","0.95","1"))
+
+	df41$recruit[df41$recruit>max.recruits]=max.recruits	
+
+	themer <- theme(panel.grid.major = element_blank(), 
+                panel.grid.minor = element_blank(), 
+                panel.background = element_blank(),
+                panel.margin = unit(0, "lines"),
+		    axis.title.y = element_text(color = "black", size = 12, vjust= 1.5),
+		    axis.title.x = element_text(color = "black", size = 12, vjust= -0.1),
+		    axis.text.x = element_text(color = "black", size = 8),
+		    axis.text.y = element_text(color = "black", size = 8,angle = 0),
+                strip.background = element_rect(fill="#F8F8F8"))
+
+	ggplot(df41,aes(x = recruit)) + 
+   	geom_histogram(fill=hcl(195,100,65),colour = "grey50",binwidth=BIN)+			#stat="bin"
+	scale_x_sqrt(breaks=c(1,10,50,200,500,1000), labels=c(1,10,50,200,500,1000))+
+	#scale_x_continuous(limits = c(0, max(df41$recruit)+1))+
+	facet_wrap(~prob2,ncol=7) + 
+	#scale_y_continuous(breaks=c(0,50,100))+
+	xlab(expression(paste("number of recruits (log"[10],")"),sep=""))+
+ 	ylab('number of simulations')+
+	themer
+	
+	#theme_bw(base_size = 10)+
+  	#theme(axis.title.x = element_text(color = "black", size = 12, vjust= -0.1),strip.background = element_blank(),
+	#		axis.text.y = element_text(color = "black", size = 10,angle = 0,hjust=1),
+	#	axis.title.y = element_text(color = "black", size = 12, vjust= 1.5,hjust=1),
+	#	axis.text.x = element_text(color = "black", size = 10),panel.border = element_rect(colour = "black"),
+	#	legend.position="right",	
+	#	panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+	#	panel.background = element_rect(colour = "pink"))
+}
+
+plotSampleIncreasingAcceptationBoxPlotRecruit <- function(f.sim3.result){
+	df.temp <- f.sim3.result	
+	df.temp$recruit[is.na(df.temp$cont_wave)] <- 0
+	df.temp$recruit[!is.na(df.temp$cont_wave)]<- 1
+	df40 <- data.frame(df.temp$SIM,df.temp$treeID,df.temp$probAccept,df.temp$recruit)
+	df41 <- aggregate(df.temp.recruit~df.temp.SIM+df.temp.probAccept, data = df40, sum)
+	colnames(df41) <- c("sim","prob","recruit")	
+	df41$prob  <- as.factor(df41$prob)
+	df41$prob <- ordered(df41$prob, levels = c("0","0.05","0.1","0.15","0.2","0.25","0.3","0.35","0.4","0.45","0.5","0.55","0.6","0.65","0.7","0.75","0.8","0.85","0.9","0.95","1"))
+
+	#df42 <- aggregate(df41$prob,by=list(ProbAccept=df41$prob,recruit=df41$recruit),length)    #COUNTS SIMULATION
+	#colnames(df42) <- c("prob","recruit","count")	
+	
+	#df42$prob  <- as.factor(df42$prob)
+	#df42$prob <- ordered(df42$prob, levels = c("0","0.05","0.1","0.15","0.2","0.25","0.3","0.35","0.4","0.45","0.5","0.55","0.6","0.65","0.7","0.75","0.8","0.85","0.9","0.95","1"))
+
+	ggplot()+
+	geom_boxplot(data=df41,aes(x=prob,y=recruit),outlier.size=1.5)+
+	#geom_point(data=df42,aes(x=prob,y=recruit,colour = count),alpha=0.3)+
+	#scale_y_sqrt(breaks=c(1,2,10,25,50,100,150,250,500,1000,1500,2000,3000,4000,5000,6000,8000,10000))+
+	#geom_jitter(position=position_jitter(width=.1, height=0),color="blue",alpha=0.3) +
+	#facet_wrap(~prob,scales = "free_x") + 
+  	#scale_y_continuous(limits = c(0, max(df41$recruit)))+
+	xlab("number of recruits")+
+ 	ylab('number of simulations')+
+	theme_bw(base_size = 14)+
+  	theme(axis.title.x = element_text(color = "black", size = 12, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 12, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 10))+ 
+ 	 theme(axis.text.y = element_text(color = "black", size = 10))+
+   	#theme(legend.title=element_blank())+
+  	#labs(colour = "count.\nsim") +
+	theme(legend.position="right")+
+  	theme(axis.text.x = element_text(angle = 0)) 	
+}
+
+# plot max wave reached in trees in each simulation (not aggregated) for scenarios different plots
+plotMaxWaveinTreesIncreasingAcceptation <- function(f.sim3.result,BIN)
+{
+	f.sim1.result  <- 	f.sim3.result
+	df_temp1  <- data.frame(prob=f.sim1.result$probAccept,sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id1,wave=f.sim1.result$rec_wave, gender=f.sim1.result$rec_gender, age=f.sim1.result$rec_age, edu=f.sim1.result$rec_edu, time=f.sim1.result$TimeCum_Rec) 
+	df_temp1$wave[is.na(df_temp1$wave)] <- 0
+	df_temp2  <- data.frame(prob=f.sim1.result$probAccept,sim=f.sim1.result$SIM,treeID=f.sim1.result$treeID,Token=f.sim1.result$id2,wave=f.sim1.result$cont_wave,gender=f.sim1.result$cont_gender,age=f.sim1.result$cont_age,edu=f.sim1.result$cont_edu,time=f.sim1.result$TimeCum_Cont)
+	df3 <- rbind(df_temp1,df_temp2)
+	df3 <- unique(df3)    #get unique respondents
+	df3 <- na.omit(df3)    #remove unsuccessful
+	df3$count <- 1
+
+	df22 <- data.frame(df3$prob,df3$sim,df3$treeID,df3$wave)
+	head(df22)
+	df23 <- aggregate(data = df22,df3.wave~df3.prob+df3.sim+df3.treeID,max)  #max wave in each tree
+	head(df23)
+	df23 <- df23[order(as.numeric(df23$df3.prob)),]
+	colnames(df23) <- c("prob","sim","tree","wave")
+	
+	#df23 <- df23[df23$wave>0,] #only those tree with size bigger than 0 waves.
+	#df24 <- aggregate(df23$trial,by=list(trial=df23$trial,wave=df23$wave),length)  #counts the number of trees with same y
+	#colnames(df24) <- c("trial","wave","count")		
+		
+	themer <- theme(panel.grid.major = element_blank(), 
+                panel.grid.minor = element_blank(), 
+                panel.background = element_blank(),
+                panel.margin = unit(0, "lines"),
+		    axis.title.y = element_text(color = "black", size = 12, vjust= 1.5),
+		    axis.title.x = element_text(color = "black", size = 12, vjust= -0.1),
+		    axis.text.x = element_text(color = "black", size = 8),
+		    axis.text.y = element_text(color = "black", size = 8,angle = 0),
+                strip.background = element_rect(fill="#F8F8F8"))
+
+	ggplot(df23,aes(x = wave)) + 
+   	geom_histogram(fill="palegreen1",colour = "grey50",binwidth=BIN)+			#stat="bin"
+	#scale_x_sqrt(breaks=c(1,10,50,200,500,1000), labels=c(1,10,50,200,500,1000))+
+	scale_x_continuous(limits = c(0, max(df23$wave)+1))+
+	facet_wrap(~prob,ncol=7) + 
+	#scale_y_continuous(breaks=c(0,50,100))+
+	xlab("max. wave reached")+
+ 	ylab('number of simulations')+
+	themer
+
+	#ggplot(df23,aes(x=wave,group=tree))+
+	#geom_histogram(stat="bin",fill = "white",colour = "darkblue",binwidth=BIN)+
+    	#facet_wrap(~prob,scales = "free_x") +
+	#scale_y_sqrt(breaks=c(0,5,20,50,100,250,500))+
+	#scale_x_continuous(limits = c(0, max(df23$wave)+1),breaks=c(0:w.max))+
+	#xlab("wave")+
+ 	#ylab("number of simulations")+
+  	#theme_bw(base_size = 10)+
+  	#theme(axis.title.x = element_text(color = "black", size = 14, vjust= -0.1))+ 
+  	#theme(axis.title.y = element_text(color = "black", size = 14, vjust= 1.5))+ 
+  	#theme(axis.text.x = element_text(color = "black", size = 10))+ 
+  	#theme(axis.text.y = element_text(color = "black", size = 10))
+  	#theme(legend.title=element_blank())+
+  	#theme(legend.position="right")+
+	#labs(colour = "count\ntrees") +
+  	#theme(axis.text.x = element_text(angle = 0)) 
+}
+
+
+# plot max. wave reached (over all trees) for different scenarios in which probability of accepting is increased
+plotSampleIncreasingAcceptationAggregatedmaxWave <- function(f.sim3.result){
+	
+	df.temp <- f.sim3.result	
+	df.temp$recruit[is.na(df.temp$cont_wave)] <- 0
+	df.temp$recruit[!is.na(df.temp$cont_wave)]<- 1
+
+	# Number of recruits per tree per simulation per prob.
+	#df140 <- aggregate(df.temp.recruit~df.temp.SIM+df.temp.treeID+df.temp.probAccept, data = df40, sum)
+	#df141 <- aggregate(df140$df.temp.probAccept,by=list(ProbAccept=df140$df.temp.probAccept,tree=df140$df.temp.treeID,recruit=df140$df.temp.recruit),length)  
+		
+	#MAX WAVE REACHED IN EACH SIM
+	df7 <- data.frame(sim=df.temp$SIM,ProbAccept=df.temp$probAccept,wave=df.temp$cont_wave)
+	dt <- data.table(df7)
+	dt1 <- dt[,list(max=max(wave)),by=c("sim","ProbAccept")]
+	#nrow(dt1)   # n.sim * length(probabilities)
+
+	dt2 <- data.frame(dt1)
+	#Set all seeds to 0
+	dt2$max[is.na(dt2$max)]=0
+
+	dt3 <- aggregate(dt2$ProbAccept,by=list(ProbAccept=dt2$ProbAccept,max=dt2$max),length)  
+	colnames(dt3) <- c("ProbAccept","max","count")	
+
+	dt3$ProbAccept <- as.factor(dt3$ProbAccept)
+	dt3$ProbAccept <- ordered(dt3$ProbAccept, levels = c("0","0.05","0.1","0.15","0.2","0.25","0.3","0.35","0.4","0.45","0.5","0.55","0.6","0.65","0.7","0.75","0.8","0.85","0.9","0.95","1"))
+
+	with(dt3, dt3[order(ProbAccept),])
+	
+	#hist(dt1$max,breaks=20,main="max. wave",
+	#xlab="max wave",ylab="number of simulations",cex.lab=1.5, cex.axis=1.5)
+
+	ggplot(dt3, aes(x=ProbAccept,y=max),)+
+  	geom_point(aes(colour = count))+
+  	#scale_y_log10(breaks=c(1,2,10,25,50,100,150,250,500,1000,1500,2000,3000))+
+  	ylab("max. wave reached")+
+ 	 xlab('probability of accepting invitation')+
+  	theme_bw(base_size = 20)+
+  	theme(axis.title.x = element_text(color = "black", size = 20, vjust= -0.1))+ 
+  	theme(axis.title.y = element_text(color = "black", size = 20, vjust= 1.5))+ 
+  	theme(axis.text.x = element_text(color = "black", size = 15))+ 
+  	theme(axis.text.y = element_text(color = "black", size = 15))+
+   	# theme(legend.title=element_blank())+
+  	labs(colour = "count.\nsim") +
+	theme(legend.position="right")+
+ 	 theme(axis.text.x = element_text(angle = 0)) +
+  	scale_colour_gradient(low = "lightgreen")
+} 
+
+
