@@ -447,9 +447,7 @@ f.sim  <- function(w.max)
 		#adj.new3 <- get.adjacency(f.sim3.result.tmp_g2,sparse=FALSE)
 		#rdsdata.graph <- graphAM(adjMat = adj.new3, edgemode = "directed")
 		
-		#plot(rdsdata.graph,"dot", attrs=list(node=list(fillcolor="lightgreen",fontsize=0,color="white"),graph=list(rankdir="TB")),edge=list(arrowType="normal",arrowsize=0.4, style="solid"))
-		#savePlot(file="D:/Dropbox/Mart/LaCie/PHD/PHD/Article 5 Simulating RDS/R code/Simulations/Network16feb.pdf",type="pdf")
-			
+		
 		#detach(package:Rgraphviz, unload = TRUE)
 		#detach(package:Graphiz, unload = TRUE)
 		#detach(package:igraph, unload = TRUE)
